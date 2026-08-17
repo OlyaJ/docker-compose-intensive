@@ -1,17 +1,18 @@
 name: Deploy
- 
+
 on:
   push:
     branches: [main]
- 
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
       changed_context: ${{ steps.set-context.outputs.context }}
+
     steps:
       - uses: actions/checkout@v3
- 
+
       - name: Detect changed services
         id: filter
         uses: dorny/paths-filter@v3
@@ -21,7 +22,13 @@ jobs:
               - 'frontend/**'
             backend:
               - 'backend/**'
- 
+
+      # ВРЕМЕННО ДОБАВИЛИ ДЛЯ ПРОВЕРКИ
+      - name: Debug changed services
+        run: |
+          echo "frontend=${{ steps.filter.outputs.frontend }}"
+          echo "backend=${{ steps.filter.outputs.backend }}"
+
       - name: Set changed context
         id: set-context
         run: |
@@ -32,41 +39,46 @@ jobs:
           else
             echo "context=none" >> $GITHUB_OUTPUT
           fi
+
   checks:
     needs: detect-changes
     if: needs.detect-changes.outputs.changed_context != 'none'
     uses: ./.github/workflows/checks.yaml
     with:
       context: ${{ needs.detect-changes.outputs.changed_context }}
- 
+
   build:
     needs:
       - detect-changes
       - checks
     if: needs.detect-changes.outputs.changed_context != 'none'
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASS }}
+
       - name: Build and push
         run: |
           docker build \
               -t ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }} \
               --build-arg VITE_BACKEND_URL=https://devops-intensive.it-incubator.io/api \
               ./${{ needs.detect-changes.outputs.changed_context }}
- 
+
           docker push ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
- 
+
   deploy:
     runs-on: ubuntu-latest
     needs:
       - detect-changes
       - build
     if: needs.detect-changes.outputs.changed_context != 'none'
+
     steps:
       - name: SSH deploy
         uses: appleboy/ssh-action@v0.1.6
@@ -76,16 +88,17 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             echo ${{ secrets.DOCKER_PASS }} | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
+
             IMAGE=${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
+
             docker pull $IMAGE
+
             cd /var/www/devops-lab.site
- 
+
             if [ "${{ needs.detect-changes.outputs.changed_context }}" = "frontend" ]; then
               sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=$IMAGE|" .env
             elif [ "${{ needs.detect-changes.outputs.changed_context }}" = "backend" ]; then
               sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=$IMAGE|" .env
             fi
- 
+
             docker compose up -d
-
-
