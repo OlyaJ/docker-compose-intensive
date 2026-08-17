@@ -78,7 +78,7 @@ jobs:
         run: |
           docker build \
             -t ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }} \
-            --build-arg VITE_BACKEND_URL=https://devops-intensive.it-incubator.io/api \
+            --build-arg VITE_BACKEND_URL=https://devops-lab.site/api \
             ./${{ needs.detect-changes.outputs.changed_context }}
 
           docker push ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
