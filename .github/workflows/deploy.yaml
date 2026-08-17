@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Detect changed services
         id: filter
@@ -23,6 +25,11 @@ jobs:
               - 'frontend/**'
             backend:
               - 'backend/**'
+
+      - name: Debug detected changes
+        run: |
+          echo "frontend=${{ steps.filter.outputs.frontend }}"
+          echo "backend=${{ steps.filter.outputs.backend }}"
 
       - name: Set changed context
         id: set-context
@@ -119,3 +126,5 @@ jobs:
             fi
 
             docker compose up -d
+
+            
