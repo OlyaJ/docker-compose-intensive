@@ -18,6 +18,7 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          base: main
           list-files: shell
           filters: |
             frontend:
