@@ -21,4 +21,4 @@ COPY . .
 # Открываем порт
 EXPOSE 3001
 # Запускаем приложение
-CMD ["npm", "start"] 
+CMD ["sh", "-c", "node scripts/setup-database.js && npm start"]
