@@ -32,6 +32,11 @@ jobs:
           echo "frontend files: ${{ steps.filter.outputs.frontend_files }}"
           echo "backend files: ${{ steps.filter.outputs.backend_files }}"
 
+      - name: Debug git range
+        run: |
+          echo "before=${{ github.event.before }}"
+          echo "after=${{ github.sha }}"
+
       - name: Set changed context
         id: set-context
         run: |
