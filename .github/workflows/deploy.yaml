@@ -34,10 +34,10 @@ jobs:
       - name: Set changed context
         id: set-context
         run: |
-          if [[ "${{ steps.filter.outputs.frontend }}" == "true" ]]; then
-            echo "context=frontend" >> $GITHUB_OUTPUT
-          elif [[ "${{ steps.filter.outputs.backend }}" == "true" ]]; then
+          if [[ "${{ steps.filter.outputs.backend }}" == "true" ]]; then
             echo "context=backend" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.filter.outputs.frontend }}" == "true" ]]; then
+            echo "context=frontend" >> $GITHUB_OUTPUT
           else
             echo "context=none" >> $GITHUB_OUTPUT
           fi
