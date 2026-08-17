@@ -6,23 +6,26 @@ on:
       context:
         required: true
         type: string
- 
+
 jobs:
   check:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
- 
+
       - name: Установка зависимостей
         working-directory: ${{ inputs.context }}
         run: npm ci
- 
+
       - name: Линтинг
+        if: inputs.context == 'frontend'
         working-directory: ${{ inputs.context }}
         run: npm run lint
- 
+
       - name: Тестирование
+        if: inputs.context == 'frontend'
         working-directory: ${{ inputs.context }}
         run: npm run test
 
-
+        
