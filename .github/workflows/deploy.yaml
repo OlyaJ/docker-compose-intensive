@@ -78,7 +78,7 @@ jobs:
             echo ${{ secrets.DOCKER_PASS }} | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
             IMAGE=${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
             docker pull $IMAGE
-            cd /var/www/devops-intensive.it-incubator.io
+            cd /var/www/devops-lab.site
  
             if [ "${{ needs.detect-changes.outputs.changed_context }}" = "frontend" ]; then
               sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=$IMAGE|" .env
@@ -88,4 +88,4 @@ jobs:
  
             docker compose up -d
 
-            
+
