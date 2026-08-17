@@ -43,6 +43,9 @@ const ProductCard = ({ product }) => {
       <div className="product-info">
         <div className="product-category">{product.category}</div>
         <h3 className="product-name">{product.name}</h3>
+          <div className="product-price"> 
+            {formatPrice(product.price)}
+          </div>
         <div className="product-rating">
           <Star size={16} fill="#fbbf24" color="#fbbf24" />
           <span>{product.rating}</span>
