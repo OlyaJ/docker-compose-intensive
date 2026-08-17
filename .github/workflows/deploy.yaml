@@ -2,16 +2,17 @@ name: Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
       changed_context: ${{ steps.set-context.outputs.context }}
+
     steps:
       - uses: actions/checkout@v3
- 
+
       - name: Detect changed services
         id: filter
         uses: dorny/paths-filter@v3
@@ -21,7 +22,7 @@ jobs:
               - 'frontend/**'
             backend:
               - 'backend/**'
- 
+
       - name: Set changed context
         id: set-context
         run: |
@@ -32,25 +33,30 @@ jobs:
           else
             echo "context=none" >> $GITHUB_OUTPUT
           fi
+
   checks:
-      needs: detect-changes
-      if: needs.detect-changes.outputs.changed_context != 'none'
-      uses: ./.github/workflows/checks.yaml
-      with:
-        context: ${{ needs.detect-changes.outputs.changed_context }}
+    needs: detect-changes
+    if: needs.detect-changes.outputs.changed_context != 'none'
+    uses: ./.github/workflows/checks.yaml
+    with:
+      context: ${{ needs.detect-changes.outputs.changed_context }}
+
   build:
     needs:
       - detect-changes
       - checks
     if: needs.detect-changes.outputs.changed_context != 'none'
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASS }}
+
       - name: Build and push
         run: |
           docker build -t ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }} ./${{ needs.detect-changes.outputs.changed_context }}
@@ -62,7 +68,16 @@ jobs:
       - detect-changes
       - build
     if: needs.detect-changes.outputs.changed_context != 'none'
+
     steps:
+      - name: Check SSH key fingerprint
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          printf '%s\n' "$SSH_KEY" > /tmp/github_actions
+          chmod 600 /tmp/github_actions
+          ssh-keygen -lf /tmp/github_actions
+
       - name: SSH deploy
         uses: appleboy/ssh-action@v0.1.6
         with:
@@ -73,14 +88,14 @@ jobs:
             IMAGE=${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
             docker pull $IMAGE
             cd /var/www/devops-intensive.it-incubator.io
- 
+
             if [ "${{ needs.detect-changes.outputs.changed_context }}" = "frontend" ]; then
               sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=$IMAGE|" .env
             elif [ "${{ needs.detect-changes.outputs.changed_context }}" = "backend" ]; then
               sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=$IMAGE|" .env
             fi
- 
+
             docker compose up -d
 
 
-        
+            
