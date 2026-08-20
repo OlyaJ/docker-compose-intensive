@@ -9,64 +9,63 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
-      changed_context: ${{ steps.set-context.outputs.context }}
+      frontend_changed: ${{ steps.filter.outputs.frontend }}
+      backend_changed: ${{ steps.filter.outputs.backend }}
+      infrastructure_changed: ${{ steps.filter.outputs.infrastructure }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Detect changed services
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          base: main
-          list-files: shell
           filters: |
             frontend:
               - 'frontend/**'
+
             backend:
               - 'backend/**'
+
+            infrastructure:
+              - 'monitoring/**'
+              - 'docker-compose.prod.yml'
+              - '.github/workflows/deploy.yml'
 
       - name: Debug changed services
         run: |
           echo "frontend=${{ steps.filter.outputs.frontend }}"
           echo "backend=${{ steps.filter.outputs.backend }}"
-          echo "frontend files: ${{ steps.filter.outputs.frontend_files }}"
-          echo "backend files: ${{ steps.filter.outputs.backend_files }}"
+          echo "infrastructure=${{ steps.filter.outputs.infrastructure }}"
 
-      - name: Debug git range
-        run: |
-          echo "before=${{ github.event.before }}"
-          echo "after=${{ github.sha }}"
-
-      - name: Set changed context
-        id: set-context
-        run: |
-          if [[ "${{ steps.filter.outputs.frontend }}" == "true" ]]; then
-            echo "context=frontend" >> $GITHUB_OUTPUT
-          elif [[ "${{ steps.filter.outputs.backend }}" == "true" ]]; then
-            echo "context=backend" >> $GITHUB_OUTPUT
-          else
-            echo "context=none" >> $GITHUB_OUTPUT
-          fi
-
-  checks:
+  backend-checks:
     needs: detect-changes
-    if: needs.detect-changes.outputs.changed_context != 'none'
+    if: needs.detect-changes.outputs.backend_changed == 'true'
     uses: ./.github/workflows/checks.yaml
     with:
-      context: ${{ needs.detect-changes.outputs.changed_context }}
+      context: backend
 
-  build:
+  frontend-checks:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend_changed == 'true'
+    uses: ./.github/workflows/checks.yaml
+    with:
+      context: frontend
+
+  build-backend:
     needs:
       - detect-changes
-      - checks
+      - backend-checks
 
-    if: needs.detect-changes.outputs.changed_context != 'none'
+    if: |
+      always() &&
+      needs.detect-changes.outputs.backend_changed == 'true' &&
+      needs.backend-checks.result == 'success'
 
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -74,45 +73,133 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASS }}
 
-      - name: Build and push
+      - name: Build backend image
         run: |
           docker build \
-            -t ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }} \
-            --build-arg VITE_BACKEND_URL=https://devops-lab.site/api \
-            ./${{ needs.detect-changes.outputs.changed_context }}
+            -t ${{ secrets.DOCKER_USER }}/devops-backend:${{ github.sha }} \
+            ./backend
 
-          docker push ${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
+      - name: Push backend image
+        run: |
+          docker push \
+            ${{ secrets.DOCKER_USER }}/devops-backend:${{ github.sha }}
 
-  deploy:
-    runs-on: ubuntu-latest
-
+  build-frontend:
     needs:
       - detect-changes
-      - build
+      - frontend-checks
 
-    if: needs.detect-changes.outputs.changed_context != 'none'
+    if: |
+      always() &&
+      needs.detect-changes.outputs.frontend_changed == 'true' &&
+      needs.frontend-checks.result == 'success'
+
+    runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            -t ${{ secrets.DOCKER_USER }}/devops-frontend:${{ github.sha }} \
+            --build-arg VITE_BACKEND_URL=https://devops-lab.site/api \
+            ./frontend
+
+      - name: Push frontend image
+        run: |
+          docker push \
+            ${{ secrets.DOCKER_USER }}/devops-frontend:${{ github.sha }}
+
+  deploy:
+    needs:
+      - detect-changes
+      - build-backend
+      - build-frontend
+
+    if: |
+      always() &&
+      (
+        needs.detect-changes.outputs.backend_changed == 'true' ||
+        needs.detect-changes.outputs.frontend_changed == 'true' ||
+        needs.detect-changes.outputs.infrastructure_changed == 'true'
+      ) &&
+      (
+        needs.build-backend.result == 'success' ||
+        needs.build-backend.result == 'skipped'
+      ) &&
+      (
+        needs.build-frontend.result == 'success' ||
+        needs.build-frontend.result == 'skipped'
+      )
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy production compose and monitoring configs
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "docker-compose.prod.yml,monitoring"
+          target: "/var/www/devops-lab.site"
+
       - name: SSH deploy
-        uses: appleboy/ssh-action@v0.1.6
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
 
           script: |
-            echo ${{ secrets.DOCKER_PASS }} | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
+            set -e
 
-            IMAGE=${{ secrets.DOCKER_USER }}/devops-${{ needs.detect-changes.outputs.changed_context }}:${{ github.sha }}
-
-            docker pull $IMAGE
+            echo "${{ secrets.DOCKER_PASS }}" | \
+              docker login \
+              -u "${{ secrets.DOCKER_USER }}" \
+              --password-stdin
 
             cd /var/www/devops-lab.site
 
-            if [ "${{ needs.detect-changes.outputs.changed_context }}" = "frontend" ]; then
-              sed -i "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=$IMAGE|" .env
-            elif [ "${{ needs.detect-changes.outputs.changed_context }}" = "backend" ]; then
-              sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=$IMAGE|" .env
+            if [ "${{ needs.detect-changes.outputs.backend_changed }}" = "true" ]; then
+              BACKEND_IMAGE="${{ secrets.DOCKER_USER }}/devops-backend:${{ github.sha }}"
+
+              docker pull "$BACKEND_IMAGE"
+
+              sed -i \
+                "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=$BACKEND_IMAGE|" \
+                .env
             fi
 
-            docker compose up -d
+            if [ "${{ needs.detect-changes.outputs.frontend_changed }}" = "true" ]; then
+              FRONTEND_IMAGE="${{ secrets.DOCKER_USER }}/devops-frontend:${{ github.sha }}"
+
+              docker pull "$FRONTEND_IMAGE"
+
+              sed -i \
+                "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=$FRONTEND_IMAGE|" \
+                .env
+            fi
+
+            docker compose \
+              -f docker-compose.prod.yml \
+              pull
+
+            docker compose \
+              -f docker-compose.prod.yml \
+              up -d \
+              --remove-orphans
+
+            docker compose \
+              -f docker-compose.prod.yml \
+              ps
+              
